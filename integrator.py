@@ -1,27 +1,29 @@
-import json
+import base64
 import requests
 from flask import Flask, request
 import datetime
+import json
 
 app = Flask(__name__)
 
-GLPI_URL = 'http://10.200.178.85:8081/apirest.php/'
-GLPI_APP_TOKEN = 'sP5gKzyCBDWi9ALWuT6o8ZJPT4yzdyGGtmDR55w6'
+GLPI_URL = 'http://172.31.247.85:8081/apirest.php/'
+GLPI_APP_TOKEN = 'sP5gKzyCBDWi9ALWuT6o8ZJPT4yzdyGGtmDR55w6'  # Ваш App Token
 GLPI_USER = 'glpi'
 GLPI_PASSWORD = 'glpi'
 
 def get_glpi_session():
-    """Получение сессии через логин и пароль"""
+    """Получение сессии через Basic Auth (логин и пароль в заголовке)"""
     headers = {
         'Content-Type': 'application/json',
         'App-Token': GLPI_APP_TOKEN
     }
-    # Используем параметры login и password в теле запроса
-    data = {
-        'login': GLPI_USER,
-        'password': GLPI_PASSWORD
-    }
-    response = requests.get(GLPI_URL + 'initSession', headers=headers, data=json.dumps(data))
+    # Формируем Basic Auth из логина и пароля
+    credentials = f"{GLPI_USER}:{GLPI_PASSWORD}"
+    encoded_credentials = base64.b64encode(credentials.encode('utf-8')).decode('utf-8')
+    headers['Authorization'] = f'Basic {encoded_credentials}'
+    
+    # GET-запрос БЕЗ тела
+    response = requests.get(GLPI_URL + 'initSession', headers=headers)
     
     if response.status_code == 200:
         session_token = response.json()['session_token']
@@ -41,9 +43,9 @@ def create_ticket(session_token, title, content):
         'input': {
             'name': title,
             'content': content,
-            'type': 1,
-            'status': 1,
-            'urgency': 3
+            'type': 1,        # 1 - Инцидент
+            'status': 1,      # 1 - Новая
+            'urgency': 3      # 3 - Высокая срочность
         }
     }
     response = requests.post(GLPI_URL + 'Ticket', headers=headers, data=json.dumps(data))
@@ -54,26 +56,27 @@ def wazuh_webhook():
     alert = request.json
     if not alert:
         return 'No data', 400
-    # ВЫВОДИ ВСЁ СОДЕРЖИМОЕ АЛЕРТА
-    #print(f"[{datetime.datetime.now()}] Полный алерт: {json.dumps(alert, indent=2)}")
 
-    print(f"[{datetime.datetime.now()}] Получен алерт")
+    print(f"[{datetime.datetime.now()}] Полный алерт: {json.dumps(alert, indent=2)}")
 
     rule_level = alert.get('rule', {}).get('level', 0)
     rule_desc = alert.get('rule', {}).get('description', 'Unknown')
     agent_ip = alert.get('agent', {}).get('ip', 'Unknown')
     timestamp = alert.get('timestamp', '')
-    
-    rule_level = alert.get('rule', {}).get('level', 0)
+
     print(f"[{datetime.datetime.now()}] Уровень алерта: {rule_level}")
-    if rule_level >= 1:  # Временно для теста
+
+    if rule_level >= 1:
         session = get_glpi_session()
         if session:
             title = f"[Инцидент ИБ] {rule_desc}"
             content = f"Источник: {agent_ip}\nВремя: {timestamp}\nОписание: {rule_desc}\nУровень: {rule_level}"
             status, response_text = create_ticket(session, title, content)
-            print(f"Ответ GLPI: {status} - {response_text}")
-            return 'Ticket created', 201
+            print(f"[{datetime.datetime.now()}] Ответ GLPI: {status} - {response_text}")
+            if status == 201 or status == 200:
+                return 'Ticket created', 201
+            else:
+                return 'Ticket creation failed', 500
         else:
             return 'Auth failed', 500
 

@@ -6,3 +6,47 @@ docker compose up -d
 
 hydra -l root -P pass.txt 10.200.178.85 ssh -t 4
 
+роутер
+docker run -d --name router-lab --network host alpine:latest sleep infinity
+docker exec -it router-lab /bin/sh
+ошибка docker: Error response from daemon: Conflict. The container name "/router-lab" is already in use by container "a977e4653863eb54e248feafbc8f77ac96a611bcaff0381e3d2a6fc840bff479". You have to remove (or rename) that container to be able to reuse that name.
+docker stop router-lab
+docker rm router-lab
+docker run -d --name router-lab --network host alpine:latest sleep infinity
+apk add openssh-server rsyslog
+vi /etc/ssh/sshd_config
+добавить
+SyslogFacility AUTH
+LogLevel INFO
+PermitRootLogin yes
+esc :wq
+
+touch /var/log/auth.log
+chmod 640 /var/log/auth.log
+vi /etc/rsyslog.conf
+добавить в конце 
+auth.* /var/log/auth.log
+authpriv.* /var/log/auth.log
+*.* @10.200.178.85:514
+закоментить module(load="imkmsg")
+
+apk add openrc
+rm -f /var/run/rsyslogd.pid
+rsyslogd -iNONE
+
+rm -f /var/run/sshd.pid
+/usr/sbin/sshd -D &
+
+passwd
+
+docker cp single-node-wazuh.manager-1:/var/ossec/etc/ossec.conf ~/ossec.conf
+nano ~/ossec.conf
+<remote>
+  <connection>syslog</connection>
+  <port>514</port>
+  <protocol>udp</protocol>
+</remote>
+docker cp ~/ossec.conf single-node-wazuh.manager-1:/var/ossec/etc/ossec.conf
+docker restart single-node-wazuh.manager-1
+
+
